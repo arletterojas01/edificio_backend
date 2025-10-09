@@ -8,4 +8,3 @@ Pillow
 psycopg2-binary
 bleach
 django-cors-headers
-pycryptodome

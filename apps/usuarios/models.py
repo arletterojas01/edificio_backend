@@ -5,6 +5,15 @@ from apps.usuarios.crypto import encrypt_sensitive_data, decrypt_sensitive_data
 from django.utils import timezone
 import base64
 
+# Agregar estas constantes para los roles
+ROLES = [
+    ('residente', 'Residente'),
+    ('personal', 'Personal'),
+    ('junta', 'Junta'),
+    ('admin', 'Administrador'),
+]
+
+ROLE_DEFAULT = 'residente'
 
 class Persona(models.Model):
     id_persona = models.AutoField(primary_key=True)
@@ -19,7 +28,6 @@ class Persona(models.Model):
     def __str__(self):
         return f"{self.nombre} {self.apellido}"
 
-
 class UsuarioManager(BaseUserManager):
     def create_user(self, username, email, password=None, **extra_fields):
         if not username:
@@ -27,6 +35,11 @@ class UsuarioManager(BaseUserManager):
         if not email:
             raise ValueError('El usuario debe tener un email')
         email = self.normalize_email(email)
+        
+        # Establecer rol por defecto si no se proporciona
+        if 'rol' not in extra_fields:
+            extra_fields['rol'] = ROLE_DEFAULT
+            
         user = self.model(username=username, email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -35,20 +48,21 @@ class UsuarioManager(BaseUserManager):
     def create_superuser(self, username, email, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
+        extra_fields.setdefault('rol', 'admin')  # Los superusuarios son admin por defecto
         return self.create_user(username, email, password, **extra_fields)
-
 
 class Usuario(AbstractBaseUser, PermissionsMixin):
     id = models.AutoField(primary_key=True)
     username = models.CharField(max_length=150, unique=True)
     persona = models.OneToOneField(Persona, on_delete=models.CASCADE, related_name="usuario")
     email = models.EmailField(unique=True)
-    password = models.CharField(max_length=128)  # hash de contraseña
+    password = models.CharField(max_length=128)
+    
+    # NUEVO CAMPO DE ROL
+    rol = models.CharField(max_length=20, choices=ROLES, default=ROLE_DEFAULT)
+    
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
-    # 🔹 Nuevo campo obligatorio para no romper integridad
-    date_joined = models.DateTimeField(default=timezone.now)
-    # --- Campos de verificación y seguridad ---
     is_email_verified = models.BooleanField(default=False)
     email_verification_token = models.CharField(max_length=64, null=True, blank=True)
     email_verification_expires = models.DateTimeField(null=True, blank=True)
@@ -58,7 +72,6 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
     two_factor_enabled = models.BooleanField(default=False)
     failed_login_attempts = models.IntegerField(default=0)
     account_locked_until = models.DateTimeField(null=True, blank=True)
-    # -------------------------------------------------------------------
 
     USERNAME_FIELD = "username"
     REQUIRED_FIELDS = ["email"]
@@ -66,17 +79,27 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
     objects = UsuarioManager()
 
     def set_password(self, raw_password):
-        """Hashea la contraseña usando el sistema seguro de Django"""
         self.password = make_password(raw_password)
         self.save()
 
     def check_password(self, raw_password):
-        """Verifica la contraseña usando el sistema de hash de Django"""
         return check_password(raw_password, self.password)
 
     def __str__(self):
-        return self.username
+        return f"{self.username} ({self.get_rol_display()})"
 
+    # Métodos de utilidad para verificar roles
+    def es_admin(self):
+        return self.rol == 'admin'
+    
+    def es_residente(self):
+        return self.rol == 'residente'
+    
+    def es_personal(self):
+        return self.rol == 'personal'
+    
+    def es_junta(self):
+        return self.rol == 'junta'
 
 class Biometricos(models.Model):
     id_biometrico = models.AutoField(primary_key=True)
@@ -94,8 +117,8 @@ class Biometricos(models.Model):
             return b""
         b64 = decrypt_sensitive_data(self.huellas_encrypted)
         return base64.b64decode(b64)
-    # Métodos similares para rostro e iris si los necesitas
 
+    # Puedes agregar métodos similares para rostro e iris
 
 class Pago(models.Model):
     id_pago = models.AutoField(primary_key=True)
@@ -112,7 +135,6 @@ class Pago(models.Model):
         if not self.referencia_bancaria_encrypted:
             return ""
         return decrypt_sensitive_data(self.referencia_bancaria_encrypted)
-
 
 class AuditoriaEvento(models.Model):
     EVENTO_CHOICES = [

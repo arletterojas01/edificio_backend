@@ -1,9 +1,9 @@
 from rest_framework import serializers
-from .models import Persona, Usuario, AuditoriaEvento
-from .crypto import encrypt_sensitive_data, decrypt_sensitive_data  # Solo para datos sensibles
+from .models import Persona, Usuario, ROLES, ROLE_DEFAULT
+from .models import AuditoriaEvento
+from .crypto import encrypt_sensitive_data, decrypt_sensitive_data
 import re
 import bleach
-from django.db import transaction
 
 COMMON_PASSWORDS = [
     "123456", "password", "12345678", "qwerty", "abc123", "111111", "123456789", "12345", "123123", "admin"
@@ -30,6 +30,15 @@ class PersonaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Persona
         fields = ["nombre", "apellido", "ci", "email", "sexo", "telefono", "fecha_nacimiento"]
+
+class UsuarioSerializer(serializers.ModelSerializer):
+    """Serializer para leer/actualizar usuarios (incluyendo rol)"""
+    persona = PersonaSerializer(read_only=True)
+    
+    class Meta:
+        model = Usuario
+        fields = ['id', 'username', 'email', 'rol', 'is_active', 'persona', 'is_email_verified']
+        read_only_fields = ['id', 'username', 'email', 'persona', 'is_email_verified']
 
 class RegisterSerializer(serializers.Serializer):
     persona = PersonaSerializer()
@@ -78,31 +87,29 @@ class RegisterSerializer(serializers.Serializer):
         import random
         from django.core.mail import send_mail
         from django.conf import settings
-
+        
         persona_data = validated_data.pop("persona")
-
+        persona = Persona.objects.create(**persona_data)
+        
         verification_token = str(random.randint(100000, 999999))
         expires_at = timezone.now() + timedelta(hours=24)
-
-        with transaction.atomic():
-            # Crear persona
-            persona = Persona.objects.create(**persona_data)
-
-            # Crear usuario vinculado a la persona
-            usuario = Usuario.objects.create_user(
-                username=validated_data["username"],
-                email=persona.email,
-                password=validated_data["password"],
-                persona=persona,
-                is_email_verified=False,
-                email_verification_token=verification_token,
-                email_verification_expires=expires_at,
-            )
-
-        # Enviar correo fuera de la transacción
+        
+        # Crear usuario con rol por defecto (residente)
+        usuario = Usuario.objects.create_user(
+            username=validated_data["username"],
+            email=persona.email,
+            password=validated_data["password"],
+            persona=persona,
+            is_email_verified=False,
+            email_verification_token=verification_token,
+            email_verification_expires=expires_at,
+            rol=ROLE_DEFAULT  # Rol por defecto: residente
+        )
+        
         self._send_verification_email(usuario)
-
+        
         return usuario
+    
     def _send_verification_email(self, usuario):
         """Envía correo de verificación al usuario"""
         from django.core.mail import send_mail
@@ -119,6 +126,8 @@ class RegisterSerializer(serializers.Serializer):
         
         Este código expirará en 24 horas.
         
+        Tu rol asignado es: {usuario.get_rol_display()}
+        
         Si no creaste esta cuenta, puedes ignorar este correo.
         
         Saludos,
@@ -132,7 +141,7 @@ class RegisterSerializer(serializers.Serializer):
             send_mail(
                 subject,
                 message,
-                settings.DEFAULT_FROM_EMAIL,  # Usar DEFAULT_FROM_EMAIL que sí está definido
+                settings.DEFAULT_FROM_EMAIL,
                 [usuario.email],
                 fail_silently=False,
             )
@@ -141,10 +150,8 @@ class RegisterSerializer(serializers.Serializer):
             print(f"❌ ERROR enviando correo de verificación: {e}")
             print(f"📧 Email Backend: {settings.EMAIL_BACKEND}")
             print(f"📧 From Email: {settings.DEFAULT_FROM_EMAIL}")
-            # Re-raise para que se vea el error completo
             raise e
 
-    
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)
@@ -173,6 +180,15 @@ class LoginSerializer(serializers.Serializer):
 
         data["usuario"] = usuario
         return data
+
+class UpdateRolSerializer(serializers.Serializer):
+    """Serializer para actualizar el rol de un usuario"""
+    rol = serializers.ChoiceField(choices=ROLES)
+    
+    def validate_rol(self, value):
+        if value not in [role[0] for role in ROLES]:
+            raise serializers.ValidationError("Rol inválido")
+        return value
 
 class AuditoriaEventoSerializer(serializers.ModelSerializer):
     def validate_descripcion(self, value):
