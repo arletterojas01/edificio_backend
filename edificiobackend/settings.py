@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'apps.usuarios',
     'apps.reservas',
+    'apps.comunicacion_interna',
     "rest_framework",
     "rest_framework_simplejwt",
     'rest_framework_simplejwt.token_blacklist',
@@ -58,6 +59,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+     
 ]
 
 ROOT_URLCONF = 'edificiobackend.urls'
@@ -131,6 +133,22 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# =============================================================================
+# CONFIGURACIÓN PARA ARCHIVOS MULTIMEDIA (QR CODES)
+# =============================================================================
+
+# URL para acceder a archivos multimedia
+MEDIA_URL = '/media/'
+
+# Ruta donde se guardarán los archivos multimedia
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Crear carpeta para QR codes si no existe
+QR_CODES_DIR = os.path.join(MEDIA_ROOT, 'qrcodes')
+os.makedirs(QR_CODES_DIR, exist_ok=True)
+
+# =============================================================================
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

@@ -7,7 +7,7 @@ from django.utils import timezone
 
 class AreaComun(models.Model):
     TIPO_AREA = [
-        ('salon', 'Salón de Eventos'),
+        ('salon', 'Salón Principal'),
         ('gimnasio', 'Gimnasio'),
         ('parqueo', 'Parqueo'),
         ('piscina', 'Piscina'),
@@ -32,11 +32,7 @@ class Reserva(models.Model):
         ('completada', 'Completada'),
     ]
     
-    # CORREGIDO: Usar settings.AUTH_USER_MODEL
-    usuario = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
-        on_delete=models.CASCADE
-    )
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     area_comun = models.ForeignKey(AreaComun, on_delete=models.CASCADE)
     fecha_reserva = models.DateField()
     hora_inicio = models.TimeField()
@@ -52,26 +48,34 @@ class Reserva(models.Model):
         return f"Reserva {self.id} - {self.usuario.username}"
     
     def save(self, *args, **kwargs):
-        if not self.codigo_qr and self.id:
-            self.generar_qr_code()
+        is_new = self.pk is None
         super().save(*args, **kwargs)
+        
+        # Generar QR solo para nuevas reservas sin QR
+        if is_new and not self.codigo_qr:
+            self.generar_qr_code()
+            super().save(update_fields=['codigo_qr'])
     
     def generar_qr_code(self):
-        qr_data = f"RESERVA-{self.id}-{self.usuario.username}-{self.fecha_reserva}"
-        qr = qrcode.QRCode(version=1, box_size=10, border=5)
-        qr.add_data(qr_data)
-        qr.make(fit=True)
-        
-        img = qr.make_image(fill_color="black", back_color="white")
-        buffer = BytesIO()
-        img.save(buffer, 'PNG')
-        
-        self.codigo_qr.save(
-            f'qr_reserva_{self.id}.png',
-            File(buffer),
-            save=False
-        )
-        buffer.close()
+        try:
+            qr_data = f"RESERVA-{self.id}-{self.usuario.username}-{self.fecha_reserva}"
+            qr = qrcode.QRCode(version=1, box_size=10, border=5)
+            qr.add_data(qr_data)
+            qr.make(fit=True)
+            
+            img = qr.make_image(fill_color="black", back_color="white")
+            buffer = BytesIO()
+            img.save(buffer, 'PNG')
+            buffer.seek(0)
+            
+            self.codigo_qr.save(
+                f'qr_reserva_{self.id}.png',
+                File(buffer),
+                save=False
+            )
+            buffer.close()
+        except Exception as e:
+            print(f"Error generando QR: {e}")
     
     def verificar_disponibilidad(self):
         from django.db.models import Q
